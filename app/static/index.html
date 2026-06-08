@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Nexora AI</title>
+
+    <style>
+        body{
+            background:#0f1117;
+            color:white;
+            font-family:Arial;
+            margin:0;
+            padding:0;
+        }
+
+        .container{
+            width:90%;
+            margin:auto;
+            padding-top:40px;
+        }
+
+        h1{
+            color:#00ffd5;
+        }
+
+        .chat-box{
+            background:#1b1f2b;
+            padding:20px;
+            border-radius:12px;
+            height:400px;
+            overflow-y:auto;
+            margin-bottom:20px;
+        }
+
+        input{
+            width:80%;
+            padding:15px;
+            border:none;
+            border-radius:10px;
+            background:#222838;
+            color:white;
+        }
+
+        button{
+            padding:15px;
+            background:#00ffd5;
+            border:none;
+            border-radius:10px;
+            cursor:pointer;
+        }
+
+        .message{
+            margin:10px 0;
+        }
+
+        .user{
+            color:#00ffd5;
+        }
+
+        .ai{
+            color:#ffffff;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h1>Nexora AI</h1>
+
+    <div class="chat-box" id="chatBox"></div>
+
+    <input type="text" id="message" placeholder="Ask Nexora AI anything..." />
+
+    <button onclick="sendMessage()">Send</button>
+
+</div>
+
+<script>
+
+async function sendMessage(){
+
+    const input = document.getElementById("message");
+
+    const text = input.value;
+
+    const chatBox = document.getElementById("chatBox");
+
+    chatBox.innerHTML += `
+        <div class="message user">
+            <b>You:</b> ${text}
+        </div>
+    `;
+
+    input.value = "";
+
+    const response = await fetch("/chat",{
+        method:"POST",
+        headers:{
+            "Content-Type":"application/json"
+        },
+        body:JSON.stringify({
+            message:text
+        })
+    });
+
+    const data = await response.json();
+
+    chatBox.innerHTML += `
+        <div class="message ai">
+            <b>Nexora:</b> ${data.response}
+        </div>
+    `;
+
+}
+
+</script>
+
+</body>
+</html>
