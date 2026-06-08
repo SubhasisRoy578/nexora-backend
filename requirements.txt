@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+python-dotenv
+google-generativeai
+playwright
+httpx
+chromadb
+sentence-transformers
+pypdf
+python-multipart
+sqlalchemy
+psycopg2-binary
+torch
+transformers
