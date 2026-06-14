@@ -189,7 +189,7 @@ except Exception as e:
 async def startup():
     # Database (sync version - no async)
     try:
-        from database.database import engine, Base
+        from app.database.database import engine, Base
         Base.metadata.create_all(bind=engine)
         print("[OK] Database initialized")
     except Exception as e:
@@ -197,7 +197,7 @@ async def startup():
 
     # Worker manager
     try:
-        from workers.worker_manager import worker_manager
+        from app.workers.worker_manager import worker_manager
         await worker_manager.start()
         print("[OK] Worker manager started")
     except Exception as e:
