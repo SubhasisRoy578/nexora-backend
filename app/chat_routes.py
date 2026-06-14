@@ -1,27 +1,22 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from app.memory.memory_manager import MemoryManager
-from app.rag.rag_engine import RAGEngine
+from .memory.memory_manager import MemoryManager
+from .rag.rag_engine import RAGEngine
 
 router = APIRouter()
 
 memory_manager = MemoryManager()
-
 rag_engine = RAGEngine()
 
 
 class ChatRequest(BaseModel):
-
     user_id: str
     message: str
 
 
 @router.post("/chat")
-async def chat(
-    request: ChatRequest
-):
-
+async def chat(request: ChatRequest):
     retrieved_memories = memory_manager.search_memory(
         user_id=request.user_id,
         query=request.message
@@ -32,9 +27,7 @@ async def chat(
         query=request.message
     )
 
-    memory_context = "\n".join(
-        retrieved_memories
-    )
+    memory_context = "\n".join(retrieved_memories)
 
     ai_response = f"""
 MEMORY CONTEXT:
@@ -61,10 +54,7 @@ You asked: {request.message}
     )
 
     return {
-
         "response": ai_response,
-
         "retrieved_memories": retrieved_memories,
-
         "rag_context": rag_context
     }
