@@ -187,11 +187,10 @@ except Exception as e:
 
 @app.on_event("startup")
 async def startup():
-    # Database
+    # Database (sync version)
     try:
         from app.database.database import engine, Base
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        Base.metadata.create_all(bind=engine)
         print("[OK] Database initialized")
     except Exception as e:
         print(f"[WARN] Database skipped: {e}")
@@ -203,6 +202,7 @@ async def startup():
         print("[OK] Worker manager started")
     except Exception as e:
         print(f"[WARN] Worker manager skipped: {e}")
+
 
 # =========================================================
 # STATIC FILES + FRONTEND
