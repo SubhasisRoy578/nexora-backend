@@ -1,14 +1,14 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
-import os
+from app.core.config import settings
 
-# Get DATABASE_URL from environment or config
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@localhost/db")
+# Get DATABASE_URL and convert for psycopg2
+DATABASE_URL = settings.DATABASE_URL
 
-# Fix the URL for psycopg2
-if DATABASE_URL.startswith("postgresql+asyncpg://"):
+# Convert asyncpg URL to psycopg2 URL
+if "postgresql+asyncpg://" in DATABASE_URL:
     DATABASE_URL = DATABASE_URL.replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
-elif DATABASE_URL.startswith("postgresql://"):
+elif "postgresql://" in DATABASE_URL and "+psycopg2" not in DATABASE_URL:
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
 
 # Create sync engine
