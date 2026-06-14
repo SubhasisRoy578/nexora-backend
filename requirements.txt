@@ -19,3 +19,4 @@ redis==5.0.1
 pypdf==4.0.1
 faiss-cpu==1.7.4
 tiktoken==0.5.2
+numpy==1.26.4
