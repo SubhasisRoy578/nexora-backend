@@ -16,3 +16,6 @@ groq==0.4.2
 duckduckgo_search==6.3.0
 celery==5.3.4
 redis==5.0.1
+pypdf==4.0.1
+faiss-cpu==1.7.4
+tiktoken==0.5.2
