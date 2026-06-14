@@ -8,19 +8,11 @@ import os
 
 load_dotenv()
 
-# =========================================================
-# FASTAPI APP
-# =========================================================
-
 app = FastAPI(
     title="Nexora AI",
     version="10.0.0",
     description="Enterprise-grade AI Agent Platform"
 )
-
-# =========================================================
-# CORS
-# =========================================================
 
 app.add_middleware(
     CORSMiddleware,
@@ -31,7 +23,7 @@ app.add_middleware(
 )
 
 # =========================================================
-# ROUTERS — USING RELATIVE IMPORTS (WITH DOTS)
+# ROUTERS - ALL ROUTERS WITH RELATIVE IMPORTS
 # =========================================================
 
 # STREAMING
@@ -50,39 +42,49 @@ try:
 except Exception as e:
     print(f"[FAILED] stream_router: {e}")
 
-# CHAT
+# =========================================================
+# CHAT ROUTES - THIS IS YOUR CHAT AGENT
+# =========================================================
 try:
     from .chat_routes import router as chat_router
     app.include_router(chat_router, prefix="/api/chat", tags=["Chat"])
-    print("[LOADED] chat_router")
+    print("[LOADED] chat_router - Chat agent is ready!")
 except Exception as e:
     print(f"[FAILED] chat_router: {e}")
 
-# AUTONOMOUS
+# =========================================================
+# PDF ROUTES - PDF UPLOAD, ANALYZE, QUESTION ANSWERING
+# =========================================================
 try:
-    from .routes.autonomous_routes import router as autonomous_router
-    app.include_router(autonomous_router, prefix="/api/autonomous", tags=["Autonomous AI"])
-    print("[LOADED] autonomous_router")
+    from .routes.pdf_routes import router as pdf_router
+    app.include_router(pdf_router, prefix="/pdf", tags=["PDF"])
+    print("[LOADED] pdf_router - PDF upload, analyze, chat with PDF ready!")
 except Exception as e:
-    print(f"[FAILED] autonomous_router: {e}")
+    print(f"[FAILED] pdf_router: {e}")
 
-# TOOLS
-try:
-    from .routes.tools_routes import router as tools_router
-    app.include_router(tools_router, prefix="/api/tools", tags=["Tools"])
-    print("[LOADED] tools_router")
-except Exception as e:
-    print(f"[FAILED] tools_router: {e}")
-
-# UPLOAD
+# =========================================================
+# UPLOAD ROUTES - FILE UPLOADS
+# =========================================================
 try:
     from .routes.upload_routes import router as upload_router
     app.include_router(upload_router, prefix="/api/upload", tags=["Upload"])
-    print("[LOADED] upload_router")
+    print("[LOADED] upload_router - File upload ready!")
 except Exception as e:
     print(f"[FAILED] upload_router: {e}")
 
-# FILES
+# =========================================================
+# RAG ROUTES - ASK QUESTIONS ABOUT DOCUMENTS
+# =========================================================
+try:
+    from .routes.rag_routes import router as rag_router
+    app.include_router(rag_router, prefix="/api/rag", tags=["RAG"])
+    print("[LOADED] rag_router - RAG question answering ready!")
+except Exception as e:
+    print(f"[FAILED] rag_router: {e}")
+
+# =========================================================
+# FILE ROUTES
+# =========================================================
 try:
     from .api.file_routes import router as file_router
     app.include_router(file_router, prefix="/api/files", tags=["Files"])
@@ -90,23 +92,29 @@ try:
 except Exception as e:
     print(f"[FAILED] file_router: {e}")
 
-# PDF
+# =========================================================
+# AUTONOMOUS
+# =========================================================
 try:
-    from .routes.pdf_routes import router as pdf_router
-    app.include_router(pdf_router, prefix="/pdf", tags=["PDF"])
-    print("[LOADED] pdf_router")
+    from .routes.autonomous_routes import router as autonomous_router
+    app.include_router(autonomous_router, prefix="/api/autonomous", tags=["Autonomous AI"])
+    print("[LOADED] autonomous_router")
 except Exception as e:
-    print(f"[FAILED] pdf_router: {e}")
+    print(f"[FAILED] autonomous_router: {e}")
 
-# RAG
+# =========================================================
+# TOOLS
+# =========================================================
 try:
-    from .routes.rag_routes import router as rag_router
-    app.include_router(rag_router, prefix="/api/rag", tags=["RAG"])
-    print("[LOADED] rag_router")
+    from .routes.tools_routes import router as tools_router
+    app.include_router(tools_router, prefix="/api/tools", tags=["Tools"])
+    print("[LOADED] tools_router")
 except Exception as e:
-    print(f"[FAILED] rag_router: {e}")
+    print(f"[FAILED] tools_router: {e}")
 
+# =========================================================
 # MEMORY
+# =========================================================
 try:
     from .routes.memory_routes import router as memory_router
     app.include_router(memory_router, prefix="/api/memory", tags=["Memory"])
@@ -114,7 +122,9 @@ try:
 except Exception as e:
     print(f"[FAILED] memory_router: {e}")
 
+# =========================================================
 # VECTOR
+# =========================================================
 try:
     from .routes.vector_routes import router as vector_router
     app.include_router(vector_router, prefix="/api/vector", tags=["Vector"])
@@ -122,7 +132,9 @@ try:
 except Exception as e:
     print(f"[FAILED] vector_router: {e}")
 
+# =========================================================
 # AUTH
+# =========================================================
 try:
     from .routes.auth_routes import router as auth_router
     app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
@@ -130,7 +142,9 @@ try:
 except Exception as e:
     print(f"[FAILED] auth_router: {e}")
 
+# =========================================================
 # AGENTS
+# =========================================================
 try:
     from .routes.agent_routes import router as agent_router
     app.include_router(agent_router, prefix="/api/agents", tags=["Agents"])
@@ -138,7 +152,9 @@ try:
 except Exception as e:
     print(f"[FAILED] agent_router: {e}")
 
+# =========================================================
 # TASKS
+# =========================================================
 try:
     from .routes.task_routes import router as task_router
     app.include_router(task_router, prefix="/api/tasks", tags=["Tasks"])
@@ -146,7 +162,9 @@ try:
 except Exception as e:
     print(f"[FAILED] task_router: {e}")
 
+# =========================================================
 # TASK STATUS
+# =========================================================
 try:
     from .routes.task_status_routes import router as task_status_router
     app.include_router(task_status_router, prefix="/api/task-status", tags=["Task Status"])
@@ -154,15 +172,19 @@ try:
 except Exception as e:
     print(f"[FAILED] task_status_router: {e}")
 
+# =========================================================
 # DISTRIBUTED
+# =========================================================
 try:
     from .routes.distributed_tasks import router as distributed_router
     app.include_router(distributed_router, prefix="/api/distributed", tags=["Distributed Tasks"])
     print("[LOADED] distributed_router")
 except Exception as e:
-    print(f"[FAILED] distributed_router: {e}")
+    print(f"[FAILED] distributed_router: {e} - Install celery: pip install celery")
 
+# =========================================================
 # BROWSER
+# =========================================================
 try:
     from .routes.browser_routes import router as browser_router
     app.include_router(browser_router, prefix="/api/browser", tags=["Browser"])
@@ -170,7 +192,9 @@ try:
 except Exception as e:
     print(f"[FAILED] browser_router: {e}")
 
+# =========================================================
 # ANALYTICS
+# =========================================================
 try:
     from .routes.analytics_routes import router as analytics_router
     app.include_router(analytics_router, prefix="/api/analytics", tags=["Analytics"])
@@ -178,7 +202,9 @@ try:
 except Exception as e:
     print(f"[FAILED] analytics_router: {e}")
 
+# =========================================================
 # SETTINGS
+# =========================================================
 try:
     from .routes.settings_routes import router as settings_router
     app.include_router(settings_router, prefix="/api/settings", tags=["Settings"])
@@ -186,7 +212,9 @@ try:
 except Exception as e:
     print(f"[FAILED] settings_router: {e}")
 
+# =========================================================
 # LEARNING
+# =========================================================
 try:
     from .routes.learning_routes import router as learning_router
     app.include_router(learning_router)
@@ -194,7 +222,9 @@ try:
 except Exception as e:
     print(f"[FAILED] learning_router: {e}")
 
+# =========================================================
 # WEBSOCKET
+# =========================================================
 try:
     from .routes.websocket_routes import router as websocket_router
     app.include_router(websocket_router, prefix="/api", tags=["WebSocket"])
@@ -208,7 +238,6 @@ except Exception as e:
 
 @app.on_event("startup")
 async def startup():
-    # Database
     try:
         from .database import engine, Base
         Base.metadata.create_all(bind=engine)
@@ -216,7 +245,6 @@ async def startup():
     except Exception as e:
         print(f"[WARN] Database skipped: {e}")
 
-    # Worker manager
     try:
         from .workers.worker_manager import worker_manager
         await worker_manager.start()
@@ -225,7 +253,7 @@ async def startup():
         print(f"[WARN] Worker manager skipped: {e}")
 
 # =========================================================
-# STATIC FILES + FRONTEND
+# STATIC FILES
 # =========================================================
 
 try:
