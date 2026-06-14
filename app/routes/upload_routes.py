@@ -1,64 +1,30 @@
-from fastapi import (
-    APIRouter,
-    UploadFile,
-    File,
-    HTTPException
-)
-
+from fastapi import APIRouter, UploadFile, File, HTTPException
 from datetime import datetime
-
 import os
 import shutil
 
-from app.rag.document_processor import (
-    DocumentProcessor
-)
-
-from app.rag.ingest import (
-    process_document
-)
+from ..rag.document_processor import DocumentProcessor
+from ..rag.ingest import process_document
 
 router = APIRouter()
 
 processor = DocumentProcessor()
-
 UPLOAD_DIR = "uploads"
 
-os.makedirs(
-    UPLOAD_DIR,
-    exist_ok=True
-)
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 @router.post("/upload")
-async def upload_file(
-    file: UploadFile = File(...)
-):
-
+async def upload_file(file: UploadFile = File(...)):
     try:
+        file_path = os.path.join(UPLOAD_DIR, file.filename)
 
-        file_path = os.path.join(
-            UPLOAD_DIR,
-            file.filename
-        )
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
 
-        with open(
-            file_path,
-            "wb"
-        ) as buffer:
+        file_size = os.path.getsize(file_path)
 
-            shutil.copyfileobj(
-                file.file,
-                buffer
-            )
-
-        file_size = os.path.getsize(
-            file_path
-        )
-
-        processed = await processor.process_document(
-            file_path
-        )
+        processed = await processor.process_document(file_path)
 
         rag_result = process_document(
             text=processed["text"],
@@ -66,29 +32,14 @@ async def upload_file(
         )
 
         return {
-
             "success": True,
-
             "filename": file.filename,
-
             "size_bytes": file_size,
-
-            "uploaded_at":
-                str(datetime.utcnow()),
-
-            "chunks":
-                rag_result["chunks"],
-
-            "indexed":
-                rag_result["indexed"],
-
-            "message":
-                "Document uploaded and indexed into RAG"
+            "uploaded_at": str(datetime.utcnow()),
+            "chunks": rag_result["chunks"],
+            "indexed": rag_result["indexed"],
+            "message": "Document uploaded and indexed into RAG"
         }
 
     except Exception as e:
-
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=500, detail=str(e))
