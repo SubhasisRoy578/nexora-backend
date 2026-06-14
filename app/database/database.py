@@ -1,6 +1,10 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
-from app.core.config import settings
+from ..core.config import settings
+import warnings
+
+# Suppress SQLAlchemy TypingOnly warning
+warnings.filterwarnings("ignore", category=UserWarning, module="sqlalchemy")
 
 # Get DATABASE_URL and convert for psycopg2
 DATABASE_URL = settings.DATABASE_URL
