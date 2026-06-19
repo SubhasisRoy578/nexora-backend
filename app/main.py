@@ -1,3 +1,7 @@
+"""
+Nexora AI — FastAPI entry point.
+Optimized for Render free tier (512 MB RAM).
+"""
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -8,10 +12,11 @@ import os
 
 load_dotenv()
 
+# ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="Nexora AI",
-    version="10.0.0",
-    description="Enterprise-grade AI Agent Platform"
+    version="11.0.0",
+    description="Nexora AI — RAG-powered chat with persistent PostgreSQL storage",
 )
 
 app.add_middleware(
@@ -22,70 +27,77 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load simplified routers only to prevent Out Of Memory (OOM) on 512MB RAM instances
-try:
-    from .chat_routes import router as chat_router
-    app.include_router(chat_router, prefix="/api/chat", tags=["Chat"])
-    print("[LOADED] chat_router")
-except Exception as e:
-    print(f"[FAILED] chat_router: {e}")
 
-try:
-    from .routes.upload_routes import router as upload_router
-    app.include_router(upload_router, prefix="/api/upload", tags=["Upload"])
-    print("[LOADED] upload_router")
-except Exception as e:
-    print(f"[FAILED] upload_router: {e}")
+# ── Database Init ──────────────────────────────────────────────────────────────
+@app.on_event("startup")
+async def startup():
+    try:
+        from app.database import init_db
+        init_db()
+    except Exception as e:
+        print(f"[WARN] DB init failed: {e}")
 
-try:
-    from .routes.rag_routes import router as rag_router
-    app.include_router(rag_router, prefix="/api/rag", tags=["RAG"])
-    print("[LOADED] rag_router")
-except Exception as e:
-    print(f"[FAILED] rag_router: {e}")
 
-# Static Files
+# ── Routers ────────────────────────────────────────────────────────────────────
+from app.routes.chat_routes import router as chat_router
+from app.routes.upload_routes import router as upload_router
+from app.routes.rag_routes import router as rag_router
+from app.routes.vector_routes import router as vector_router
+from app.routes.auth_routes import router as auth_router
+from app.routes.analytics_routes import router as analytics_router
+from app.routes.settings_routes import router as settings_router
+from app.routes.learning_routes import router as learning_router
+from app.routes.websocket_routes import router as websocket_router
+from app.routes.browser_routes import router as browser_router
+
+app.include_router(chat_router, prefix="/api/chat", tags=["Chat"])
+app.include_router(upload_router, prefix="/api/upload", tags=["Upload"])
+app.include_router(rag_router, prefix="/api/rag", tags=["RAG"])
+app.include_router(vector_router, prefix="/api/vector", tags=["Vector"])
+app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
+app.include_router(analytics_router, prefix="/api/analytics", tags=["Analytics"])
+app.include_router(settings_router, prefix="/api/settings", tags=["Settings"])
+app.include_router(learning_router, prefix="/api/learning", tags=["Learning"])
+app.include_router(websocket_router, prefix="/api/websocket", tags=["Websocket"])
+app.include_router(browser_router, prefix="/api/browser", tags=["Browser"])
+
+print("[OK] All 10 simplified routers registered successfully")
+
+
+# ── Static / Frontend ──────────────────────────────────────────────────────────
 try:
-    app.mount("/static", StaticFiles(directory="static"), name="static")
-    FRONTEND_PATH = Path("static/index.html")
-    @app.get("/app")
-    async def frontend():
-        return FileResponse(FRONTEND_PATH)
-    print("[OK] Static files mounted")
+    static_dir = Path("static")
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory="static"), name="static")
+        FRONTEND_PATH = static_dir / "index.html"
+
+        @app.get("/app")
+        async def frontend():
+            return FileResponse(FRONTEND_PATH)
+
+        print("[OK] Static files mounted")
 except Exception as e:
     print(f"[WARN] Static files skipped: {e}")
 
+
+# ── Health & Info ──────────────────────────────────────────────────────────────
 @app.get("/")
 async def root():
-    return {"status": "ok", "project": "Nexora AI"}
+    return {"status": "ok", "project": "Nexora AI", "version": "11.0.0"}
+
 
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
 
+
 @app.get("/capabilities")
 async def capabilities():
     return {
         "chat": True,
-        "memory": True,
         "rag": True,
-        "pdf_upload": True,
-        "pdf_qa": True,
-        "llm_integration": True
-    }
-
-@app.get("/system")
-async def system_info():
-    return {
-        "status": "running",
-        "project": "Nexora AI",
-        "version": "10.0.0",
-        "features": {
-            "chat": True,
-            "persistent_memory": True,
-            "rag": True,
-            "document_intelligence": True,
-            "large_file_uploads": True,
-            "production_backend": True
-        }
+        "file_upload": True,
+        "persistent_memory": True,
+        "openai_embeddings": True,
+        "postgresql_backend": True,
     }

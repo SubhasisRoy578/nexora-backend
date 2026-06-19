@@ -1,36 +1,58 @@
-# Dependencies
-node_modules/
-venv/
-env/
-ENV/
-.venv
-
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
+*.pyo
+*.pyd
 .Python
-build/
-dist/
-eggs/
-.eggs/
+*.egg
 *.egg-info/
+dist/
+build/
+*.so
 
-# Environment
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# Environment variables
 .env
-.env.local
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+nexora.db
+
+# Uploads and generated files
+uploads/
+simplified_rag_store.json
+simplified_memories.json
+memory_db/
+qdrant_db/
+
+# Logs
+*.log
+logs/
 
 # IDE
 .vscode/
 .idea/
-.DS_Store
+*.swp
+*.swo
 
-# Logs & Temp
-*.log
-logs/
-tmp/
-uploads/
-*.db
-*.sqlite
-EOF
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+npm-debug.log*
+package-lock.json
+
+# Render/Docker artifacts
+uvicorn
+tatus
+tatusRETURN
+apt-packages

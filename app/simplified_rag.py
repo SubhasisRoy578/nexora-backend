@@ -1,189 +1,190 @@
 import os
-import json
 import math
-from openai import OpenAI
-import fitz  # PyMuPDF
-import docx
+from sqlalchemy.orm import Session
+from app.ai.embeddings import create_embedding, create_embeddings
 
-# Initialize OpenAI client using environment variable
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", "dummy_key"))
 
-RAG_STORE_FILE = "simplified_rag_store.json"
-MEMORIES_FILE = "simplified_memories.json"
+# ── Text Chunking ──────────────────────────────────────────────────────────────
 
-def get_embedding(text: str) -> list:
-    """Generate embedding for a given text using OpenAI API."""
-    try:
-        response = client.embeddings.create(
-            input=[text.replace("\n", " ")],
-            model="text-embedding-3-small"
-        )
-        return response.data[0].embedding
-    except Exception as e:
-        print(f"Error generating embedding: {e}")
-        # Return a zero vector of dimension 1536 as fallback
-        return [0.0] * 1536
-
-def chunk_text(text: str, chunk_size: int = 1000, chunk_overlap: int = 200) -> list:
+def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> list:
     """Split text into overlapping chunks."""
+    text = text.strip()
+    if not text:
+        return []
+    if len(text) <= chunk_size:
+        return [text]
+
     chunks = []
     start = 0
-    text_len = len(text)
-    
-    if text_len <= chunk_size:
-        return [text]
-        
-    while start < text_len:
-        end = start + chunk_size
-        chunk = text[start:end]
-        chunks.append(chunk)
-        start += (chunk_size - chunk_overlap)
-        
+    while start < len(text):
+        end = min(start + chunk_size, len(text))
+        chunks.append(text[start:end])
+        # Ensure we make forward progress
+        next_start = start + chunk_size - overlap
+        if next_start <= start:
+            break
+        start = next_start
     return chunks
 
+
+# ── File Text Extraction ───────────────────────────────────────────────────────
+
 def extract_text_from_file(file_path: str) -> str:
-    """Extract plain text from PDF, DOCX, or TXT file."""
+    """Extract plain text from PDF, DOCX, or TXT."""
     ext = os.path.splitext(file_path)[1].lower()
     text = ""
-    
+
     if ext == ".pdf":
         try:
+            import fitz  # PyMuPDF is extremely lightweight
             doc = fitz.open(file_path)
             for page in doc:
                 text += page.get_text()
             doc.close()
         except Exception as e:
-            print(f"Error reading PDF {file_path}: {e}")
+            print(f"[PDF ERROR] PyMuPDF failed: {e}. Trying fallback pypdf...")
+            try:
+                import pypdf
+                reader = pypdf.PdfReader(file_path)
+                for page in reader.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        text += page_text
+            except Exception as e2:
+                print(f"[PDF FALLBACK ERROR] {e2}")
+
     elif ext == ".docx":
         try:
+            import docx
             doc = docx.Document(file_path)
-            text = "\n".join([p.text for p in doc.paragraphs])
+            text = "\n".join(p.text for p in doc.paragraphs)
         except Exception as e:
-            print(f"Error reading DOCX {file_path}: {e}")
+            print(f"[DOCX ERROR] {e}")
+
     else:
-        # Default to text file
+        # Default fallback for TXT, MD, CSV etc.
         try:
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                 text = f.read()
         except Exception as e:
-            print(f"Error reading text file {file_path}: {e}")
-            
+            print(f"[TXT ERROR] {e}")
+
     return text
 
-def save_document(file_path: str, filename: str) -> int:
-    """Process a document, chunk it, embed chunks, and save to JSON store."""
+
+# ── Document Indexing ──────────────────────────────────────────────────────────
+
+def save_document(db: Session, file_path: str, filename: str) -> int:
+    """Extract, chunk, embed, and persist a document to the database."""
+    from app.models.document import DocumentChunk
+
     text = extract_text_from_file(file_path)
     if not text.strip():
         return 0
-        
+
     chunks = chunk_text(text)
-    
-    # Load existing store
-    store = []
-    if os.path.exists(RAG_STORE_FILE):
-        try:
-            with open(RAG_STORE_FILE, "r", encoding="utf-8") as f:
-                store = json.load(f)
-        except Exception as e:
-            print(f"Error loading RAG store: {e}")
-            store = []
-            
-    # Remove old chunks for the same file if any
-    store = [entry for entry in store if entry.get("filename") != filename]
-    
-    # Process and embed each chunk
-    for chunk in chunks:
-        embedding = get_embedding(chunk)
-        store.append({
-            "filename": filename,
-            "text": chunk,
-            "embedding": embedding
-        })
-        
-    # Write back to store
-    try:
-        with open(RAG_STORE_FILE, "w", encoding="utf-8") as f:
-            json.dump(store, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"Error writing to RAG store: {e}")
-        
+    if not chunks:
+        return 0
+
+    # Remove old chunks for this filename
+    db.query(DocumentChunk).filter(DocumentChunk.filename == filename).delete()
+    db.commit()
+
+    # Batch embed all chunks in one request
+    embeddings = create_embeddings(chunks)
+
+    # Save chunks to database
+    for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
+        record = DocumentChunk(
+            filename=filename,
+            chunk_index=i,
+            text=chunk,
+            embedding=emb
+        )
+        db.add(record)
+
+    db.commit()
     return len(chunks)
 
-def dot_product(v1: list, v2: list) -> float:
-    return sum(x * y for x, y in zip(v1, v2))
 
-def magnitude(v: list) -> float:
-    return math.sqrt(sum(x * x for x in v))
+# ── Similarity Search ──────────────────────────────────────────────────────────
 
-def cosine_similarity(v1: list, v2: list) -> float:
-    m1 = magnitude(v1)
-    m2 = magnitude(v2)
-    if m1 == 0.0 or m2 == 0.0:
+def _cosine_similarity(v1: list, v2: list) -> float:
+    dot = sum(a * b for a, b in zip(v1, v2))
+    m1 = math.sqrt(sum(a * a for a in v1))
+    m2 = math.sqrt(sum(b * b for b in v2))
+    if m1 == 0 or m2 == 0:
         return 0.0
-    return dot_product(v1, v2) / (m1 * m2)
+    return dot / (m1 * m2)
 
-def search_rag(query: str, top_k: int = 3) -> list:
-    """Find the most similar chunks from the RAG store for the query."""
-    if not os.path.exists(RAG_STORE_FILE):
-        return []
-        
-    try:
-        with open(RAG_STORE_FILE, "r", encoding="utf-8") as f:
-            store = json.load(f)
-    except Exception as e:
-        print(f"Error loading RAG store for search: {e}")
-        return []
-        
-    if not store:
-        return []
-        
-    query_emb = get_embedding(query)
+
+def search_rag(db: Session, query: str, top_k: int = 3) -> list:
+    """Find top_k most similar chunks to the query from the database."""
+    from app.models.document import DocumentChunk
+    from app.database import HAS_PGVECTOR
+
+    query_emb = create_embedding(query)
     
-    scored_chunks = []
-    for entry in store:
-        emb = entry.get("embedding")
-        if not emb:
+    # Use native pgvector operators if database is PostgreSQL and pgvector is enabled
+    if db.bind.dialect.name == 'postgresql' and HAS_PGVECTOR:
+        try:
+            distance_expr = DocumentChunk.embedding.op('<=>')(query_emb)
+            results = (
+                db.query(DocumentChunk, (1.0 - distance_expr).label("similarity"))
+                .order_by(distance_expr)
+                .limit(top_k)
+                .all()
+            )
+            return [
+                {
+                    "filename": r[0].filename,
+                    "text": r[0].text,
+                    "similarity": float(r[1] or 0.0)
+                }
+                for r in results
+            ]
+        except Exception as e:
+            print(f"[PGVECTOR SEARCH ERROR] falling back to python similarity: {e}")
+
+    # Fallback Python-based similarity search (e.g. on SQLite, or if pgvector is disabled)
+    chunks = db.query(DocumentChunk).all()
+    if not chunks:
+        return []
+
+    scored = []
+    for chunk in chunks:
+        if not chunk.embedding:
             continue
-        sim = cosine_similarity(query_emb, emb)
-        scored_chunks.append({
-            "filename": entry.get("filename"),
-            "text": entry.get("text"),
+        sim = _cosine_similarity(query_emb, chunk.embedding)
+        scored.append({
+            "filename": chunk.filename,
+            "text": chunk.text,
             "similarity": sim
         })
-        
-    # Sort descending by similarity
-    scored_chunks.sort(key=lambda x: x["similarity"], reverse=True)
-    return scored_chunks[:top_k]
 
-# Simple Memory Helper
-def store_memory(user_id: str, role: str, content: str):
-    memories = {}
-    if os.path.exists(MEMORIES_FILE):
-        try:
-            with open(MEMORIES_FILE, "r", encoding="utf-8") as f:
-                memories = json.load(f)
-        except Exception:
-            memories = {}
-            
-    if user_id not in memories:
-        memories[user_id] = []
-        
-    memories[user_id].append(f"{role}: {content}")
-    # Keep last 10 turns of history
-    memories[user_id] = memories[user_id][-20:]
-    
-    try:
-        with open(MEMORIES_FILE, "w", encoding="utf-8") as f:
-            json.dump(memories, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"Error saving memories: {e}")
+    scored.sort(key=lambda x: x["similarity"], reverse=True)
+    return scored[:top_k]
 
-def get_memories(user_id: str) -> list:
-    if not os.path.exists(MEMORIES_FILE):
-        return []
-    try:
-        with open(MEMORIES_FILE, "r", encoding="utf-8") as f:
-            memories = json.load(f)
-        return memories.get(user_id, [])
-    except Exception:
-        return []
+
+# ── Chat Memory ────────────────────────────────────────────────────────────────
+
+def store_message(db: Session, user_id: str, role: str, content: str):
+    """Persist a chat turn to the database."""
+    from app.models.chat import ChatMessage
+    msg = ChatMessage(user_id=user_id, role=role, content=content)
+    db.add(msg)
+    db.commit()
+
+
+def get_recent_messages(db: Session, user_id: str, limit: int = 10) -> list:
+    """Retrieve the last N messages for a user."""
+    from app.models.chat import ChatMessage
+    rows = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.user_id == user_id)
+        .order_by(ChatMessage.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    # Return in chronological order
+    return [{"role": r.role, "content": r.content} for r in reversed(rows)]

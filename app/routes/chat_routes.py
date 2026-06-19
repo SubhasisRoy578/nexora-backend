@@ -1,170 +1,120 @@
-# ==================================================
-# NEXORA AI — CHAT ROUTES
-# Supports user-selected LLM provider.
-# Fallback handled automatically in llm_router.
-# ==================================================
-
-from fastapi import APIRouter
+import os
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
+from sqlalchemy.orm import Session
+from openai import OpenAI
 
-from app.memory.memory_manager import MemoryManager
-from app.agents.orchestrator import AgentOrchestrator
+from app.database import get_db
+from app.simplified_rag import search_rag, store_message, get_recent_messages
 
 router = APIRouter()
-
-memory_manager = MemoryManager()
-orchestrator = AgentOrchestrator()
+_client = None
 
 
-# ==================================================
-# REQUEST MODEL
-# provider: optional — "groq" | "gemini" | "openai"
-# ==================================================
+def get_chat_client():
+    global _client
+    if _client is None:
+        key = os.environ.get("OPENAI_API_KEY", "")
+        if not key:
+            print("[WARN] OPENAI_API_KEY is not set in environment.")
+            key = "missing_key"
+        _client = OpenAI(api_key=key)
+    return _client
+
 
 class ChatRequest(BaseModel):
     user_id: str
     message: str
-    provider: Optional[str] = None  # user selects LLM
+    provider: Optional[str] = None
 
-
-# ==================================================
-# SAFE HELPERS
-# ==================================================
-
-def _safe_memory_to_text(memories):
-
-    if not memories:
-        return ""
-
-    context_lines = []
-
-    for m in memories:
-        try:
-            if isinstance(m, dict):
-                role = m.get("role", "unknown")
-                content = m.get("content", "")
-            else:
-                role = getattr(m, "role", "unknown")
-                content = getattr(m, "content", None)
-                if content is None:
-                    content = str(m)
-
-            if content:
-                context_lines.append(
-                    f"{role}: {content}"
-                )
-
-        except Exception:
-            continue
-
-    return "\n".join(context_lines)
-
-
-# ==================================================
-# CHAT ENDPOINT
-# ==================================================
 
 @router.post("/chat")
-async def chat(request: ChatRequest):
-
+async def chat(request: ChatRequest, db: Session = Depends(get_db)):
     user_id = request.user_id
     message = request.message
-    provider = request.provider  # may be None
 
-    # -------------------------------------------------
-    # STEP 1: Retrieve Memories
-    # -------------------------------------------------
+    # 1. Retrieve recent messages from DB for conversation history
+    history = []
     try:
-        previous_memories = await memory_manager.search_memory_async(
-            user_id=user_id,
-            query=message
-        )
-        if not previous_memories:
-            previous_memories = []
-
+        history = get_recent_messages(db, user_id=user_id, limit=10)
     except Exception as e:
-        print(f"[Memory Search Error]: {e}")
-        previous_memories = []
+        print(f"[DB history error]: {e}")
 
-    # -------------------------------------------------
-    # STEP 2: Build Memory Context
-    # -------------------------------------------------
-    memory_context = _safe_memory_to_text(previous_memories)
-
-    # -------------------------------------------------
-    # STEP 3: Profile Memory
-    # -------------------------------------------------
-    profile_memories = []
+    # 2. Search for relevant context using RAG
+    rag_context = ""
+    sources = []
     try:
-        profile_memories = memory_manager.get_user_profile(
-            user_id=user_id
-        )
-        if profile_memories is None:
-            profile_memories = []
+        rag_results = search_rag(db, message, top_k=3)
+        if rag_results:
+            # Only use results with positive similarity
+            filtered_results = [r for r in rag_results if r.get("similarity", 0) > 0.15]
+            if filtered_results:
+                rag_context = "\n---\n".join([r["text"] for r in filtered_results])
+                sources = list({r["filename"] for r in filtered_results})
     except Exception as e:
-        print(f"[Profile Memory Error]: {e}")
+        print(f"[RAG Retrieval Error]: {e}")
 
-    # -------------------------------------------------
-    # STEP 4: Orchestrator Execution
-    # Passes provider so LLM router uses correct model
-    # -------------------------------------------------
-    ai_response = ""
-    result = {}
-
-    try:
-        result = await orchestrator.run(
-            goal=message,
-            user_id=user_id,
-            provider=provider
+    # 3. Construct prompts
+    system_prompt = "You are Nexora AI, a helpful, intelligent AI assistant."
+    if rag_context:
+        system_prompt += (
+            f"\n\nContext from user's uploaded documents:\n{rag_context}\n\n"
+            f"Instructions: Answer the question using the context above when relevant. "
+            f"If the context doesn't contain the answer, use your general knowledge to answer, "
+            f"but clearly state that the answer was not found in the uploaded documents."
         )
 
-        if isinstance(result, dict):
-            ai_response = result.get("final_answer") or str(result)
-        else:
-            ai_response = str(result)
-            result = {"raw_result": ai_response}
+    messages = [{"role": "system", "content": system_prompt}]
+    for msg in history:
+        messages.append({"role": msg["role"], "content": msg["content"]})
+    messages.append({"role": "user", "content": message})
 
-    except Exception as e:
-        print(f"[Orchestrator Error]: {e}")
-        ai_response = f"Something went wrong. Please try again."
-        result = {"error": str(e)}
-
-    # -------------------------------------------------
-    # STEP 5: Store Memory (non-blocking)
-    # -------------------------------------------------
+    # 4. Call OpenAI completion
     try:
-        await memory_manager.store_memory_async(
-            user_id=user_id,
-            role="user",
-            content=message
+        client = get_chat_client()
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            max_tokens=1024,
         )
-        if ai_response:
-            await memory_manager.store_memory_async(
-                user_id=user_id,
-                role="assistant",
-                content=ai_response
-            )
+        ai_response = completion.choices[0].message.content
     except Exception as e:
-        print(f"[Memory Store Error]: {e}")
+        raise HTTPException(status_code=500, detail=f"OpenAI API error: {e}")
 
-    # -------------------------------------------------
-    # STEP 6: Response
-    # -------------------------------------------------
+    # 5. Persist user and assistant message to database
+    try:
+        store_message(db, user_id, "user", message)
+        store_message(db, user_id, "assistant", ai_response)
+    except Exception as e:
+        print(f"[DB memory write error]: {e}")
+
     return {
         "success": True,
         "response": ai_response,
-        "provider_used": provider or "groq (default)",
-        "retrieved_memories": previous_memories,
-        "memory_context": memory_context,
-        "profile_memory": profile_memories,
-        "memory_count": len(previous_memories),
-        "orchestrator_enabled": True,
-        "research_agent": True,
-        "memory_agent": True,
-        "rag_agent": True,
-        "dynamic_agents": True,
-        "critic_agent": True,
-        "task_execution": True,
-        "result": result
+        "provider_used": "openai (gpt-4o-mini)",
+        "sources": sources,
+        "history_count": len(history)
     }
+
+
+@router.get("/history/{user_id}")
+async def get_history(user_id: str, db: Session = Depends(get_db)):
+    """Retrieve chat history for a given user."""
+    try:
+        history = get_recent_messages(db, user_id=user_id, limit=50)
+        return {"success": True, "history": history}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+
+@router.delete("/history/{user_id}")
+async def clear_history(user_id: str, db: Session = Depends(get_db)):
+    """Clear chat history for a given user."""
+    from app.models.chat import ChatMessage
+    try:
+        deleted = db.query(ChatMessage).filter(ChatMessage.user_id == user_id).delete()
+        db.commit()
+        return {"success": True, "deleted_count": deleted}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
