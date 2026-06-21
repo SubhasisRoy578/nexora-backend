@@ -6,7 +6,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.workflows.simplified_rag import search_rag, store_message, get_recent_messages
+from app.simplified_rag import search_rag, store_message, get_recent_messages
 
 router = APIRouter()
 
