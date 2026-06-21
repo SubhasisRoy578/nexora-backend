@@ -1,8 +1,10 @@
+# app/models/document.py
 import json
 from sqlalchemy import Column, Integer, String, Text, DateTime
 from sqlalchemy.sql import func
 from sqlalchemy.types import TypeDecorator
 from app.database import Base, HAS_PGVECTOR
+
 
 class SafeVector(TypeDecorator):
     """
@@ -56,3 +58,13 @@ class DocumentChunk(Base):
 
     def __repr__(self):
         return f"<DocumentChunk id={self.id} file={self.filename} chunk={self.chunk_index}>"
+
+    def to_dict(self):
+        """Convert chunk to dictionary for API responses."""
+        return {
+            "id": self.id,
+            "filename": self.filename,
+            "chunk_index": self.chunk_index,
+            "text": self.text[:500] + "..." if len(self.text) > 500 else self.text,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
