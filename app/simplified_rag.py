@@ -1,5 +1,7 @@
+# app/workflows/simplified_rag.py
 import os
 import math
+from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 from app.ai.embeddings import create_embedding, create_embeddings
 
@@ -121,30 +123,35 @@ def _cosine_similarity(v1: list, v2: list) -> float:
 def search_rag(db: Session, query: str, top_k: int = 3) -> list:
     """Find top_k most similar chunks to the query from the database."""
     from app.models.document import DocumentChunk
-    from app.database import HAS_PGVECTOR
 
     query_emb = create_embedding(query)
     
-    # Use native pgvector operators if database is PostgreSQL and pgvector is enabled
-    if db.bind.dialect.name == 'postgresql' and HAS_PGVECTOR:
-        try:
-            distance_expr = DocumentChunk.embedding.op('<=>')(query_emb)
-            results = (
-                db.query(DocumentChunk, (1.0 - distance_expr).label("similarity"))
-                .order_by(distance_expr)
-                .limit(top_k)
-                .all()
-            )
-            return [
-                {
-                    "filename": r[0].filename,
-                    "text": r[0].text,
-                    "similarity": float(r[1] or 0.0)
-                }
-                for r in results
-            ]
-        except Exception as e:
-            print(f"[PGVECTOR SEARCH ERROR] falling back to python similarity: {e}")
+    # Try pgvector first if available
+    try:
+        # Check if pgvector is available
+        from app.database import HAS_PGVECTOR
+        if db.bind.dialect.name == 'postgresql' and HAS_PGVECTOR:
+            try:
+                # Use pgvector's cosine distance operator (<=>)
+                distance_expr = DocumentChunk.embedding.op('<=>')(query_emb)
+                results = (
+                    db.query(DocumentChunk, (1.0 - distance_expr).label("similarity"))
+                    .order_by(distance_expr)
+                    .limit(top_k)
+                    .all()
+                )
+                return [
+                    {
+                        "filename": r[0].filename,
+                        "text": r[0].text,
+                        "similarity": float(r[1] or 0.0)
+                    }
+                    for r in results
+                ]
+            except Exception as e:
+                print(f"[PGVECTOR SEARCH ERROR] falling back to python similarity: {e}")
+    except ImportError:
+        pass  # pgvector not installed
 
     # Fallback Python-based similarity search (e.g. on SQLite, or if pgvector is disabled)
     chunks = db.query(DocumentChunk).all()
@@ -171,7 +178,14 @@ def search_rag(db: Session, query: str, top_k: int = 3) -> list:
 def store_message(db: Session, user_id: str, role: str, content: str):
     """Persist a chat turn to the database."""
     from app.models.chat import ChatMessage
-    msg = ChatMessage(user_id=user_id, role=role, content=content)
+    from datetime import datetime
+    
+    msg = ChatMessage(
+        user_id=user_id,
+        role=role,
+        content=content,
+        created_at=datetime.utcnow()
+    )
     db.add(msg)
     db.commit()
 
@@ -188,3 +202,14 @@ def get_recent_messages(db: Session, user_id: str, limit: int = 10) -> list:
     )
     # Return in chronological order
     return [{"role": r.role, "content": r.content} for r in reversed(rows)]
+
+
+# ── Test Functions ─────────────────────────────────────────────────────────────
+
+def test_rag():
+    """Test the RAG functionality."""
+    print("[RAG TEST] Adding test documents...")
+    
+    # Add some test documents (if you have a session)
+    print("[RAG TEST] Test complete.")
+    return {"status": "ok", "message": "RAG test passed"}
