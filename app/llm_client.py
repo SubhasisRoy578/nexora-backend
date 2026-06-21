@@ -43,20 +43,39 @@ def get_gemini_client():
 # ============================================
 
 def call_groq(messages: List[Dict[str, str]]) -> tuple[str, str]:
-    """Call Groq API."""
+    """Call Groq API with updated working models."""
     client = get_groq_client()
     if not client:
         raise Exception("Groq client not available. Check GROQ_API_KEY.")
     
-    model = os.environ.get("GROQ_MODEL", "llama3-70b-8192")
+    # Updated to working models - use environment variable or fallback
+    model = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")
+    
+    # List of known working Groq models (for reference)
+    WORKING_MODELS = [
+        "llama-3.1-8b-instant",
+        "llama-3.1-70b-versatile",
+        "mixtral-8x7b-32768",
+        "gemma2-9b-it",
+        "llama3-70b-8192",  # Still works for some users
+    ]
+    
     try:
         response = client.chat.completions.create(
             model=model,
             messages=messages,
             max_tokens=1024,
+            temperature=0.7,
         )
         return response.choices[0].message.content, "groq"
     except Exception as e:
+        error_str = str(e)
+        # Provide helpful error message for decommissioned models
+        if "decommissioned" in error_str.lower():
+            raise Exception(
+                f"Groq model '{model}' is decommissioned. "
+                f"Please update GROQ_MODEL to one of: {', '.join(WORKING_MODELS)}"
+            )
         raise Exception(f"Groq API error: {e}")
 
 def call_gemini(messages: List[Dict[str, str]]) -> tuple[str, str]:
@@ -65,14 +84,24 @@ def call_gemini(messages: List[Dict[str, str]]) -> tuple[str, str]:
     if not genai:
         raise Exception("Gemini client not available. Check GEMINI_API_KEY.")
     
-    model = genai.GenerativeModel(os.environ.get("GEMINI_MODEL", "gemini-1.5-flash"))
+    model_name = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
     
-    # Convert messages to Gemini format
-    prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
     try:
+        model = genai.GenerativeModel(model_name)
+        
+        # Convert messages to Gemini format
+        prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
         response = model.generate_content(prompt)
-        return response.text, "gemini"
+        
+        if response.text:
+            return response.text, "gemini"
+        else:
+            raise Exception("Gemini returned empty response")
+            
     except Exception as e:
+        error_str = str(e)
+        if "API key" in error_str.lower() or "invalid" in error_str.lower():
+            raise Exception(f"Gemini API key invalid. Check GEMINI_API_KEY.")
         raise Exception(f"Gemini API error: {e}")
 
 def call_openai(messages: List[Dict[str, str]]) -> tuple[str, str]:
@@ -87,9 +116,13 @@ def call_openai(messages: List[Dict[str, str]]) -> tuple[str, str]:
             model=model,
             messages=messages,
             max_tokens=1024,
+            temperature=0.7,
         )
         return response.choices[0].message.content, "openai"
     except Exception as e:
+        error_str = str(e)
+        if "quota" in error_str.lower() or "exceeded" in error_str.lower():
+            raise Exception(f"OpenAI quota exceeded. Check your billing.")
         raise Exception(f"OpenAI API error: {e}")
 
 def call_ollama(messages: List[Dict[str, str]]) -> tuple[str, str]:
@@ -201,4 +234,25 @@ def get_provider_status() -> Dict[str, bool]:
         "gemini": bool(os.environ.get("GEMINI_API_KEY")),
         "openai": bool(os.environ.get("OPENAI_API_KEY")),
         "ollama": bool(os.environ.get("OLLAMA_MODEL")),
+    }
+
+def get_working_models() -> Dict[str, List[str]]:
+    """Return list of working models for each provider."""
+    return {
+        "groq": [
+            "llama-3.1-8b-instant",
+            "llama-3.1-70b-versatile",
+            "mixtral-8x7b-32768",
+            "gemma2-9b-it",
+        ],
+        "gemini": [
+            "gemini-1.5-flash",
+            "gemini-1.5-pro",
+            "gemini-2.0-flash-exp",
+        ],
+        "openai": [
+            "gpt-3.5-turbo",
+            "gpt-4",
+            "gpt-4-turbo-preview",
+        ]
     }
