@@ -79,31 +79,34 @@ def call_groq(messages: List[Dict[str, str]]) -> tuple[str, str]:
         raise Exception(f"Groq API error: {e}")
 
 def call_gemini(messages: List[Dict[str, str]]) -> tuple[str, str]:
-    """Call Gemini API."""
+    """Call Gemini API with fallback models."""
     genai = get_gemini_client()
     if not genai:
         raise Exception("Gemini client not available. Check GEMINI_API_KEY.")
     
-    model_name = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
+    # Try multiple models in order
+    models_to_try = [
+        os.environ.get("GEMINI_MODEL", "gemini-2.0-flash"),
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite",
+        "gemini-2.5-flash",
+        "gemini-flash-latest",
+    ]
     
-    try:
-        model = genai.GenerativeModel(model_name)
-        
-        # Convert messages to Gemini format
-        prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
-        response = model.generate_content(prompt)
-        
-        if response.text:
-            return response.text, "gemini"
-        else:
-            raise Exception("Gemini returned empty response")
-            
-    except Exception as e:
-        error_str = str(e)
-        if "API key" in error_str.lower() or "invalid" in error_str.lower():
-            raise Exception(f"Gemini API key invalid. Check GEMINI_API_KEY.")
-        raise Exception(f"Gemini API error: {e}")
-
+    last_error = None
+    for model_name in models_to_try:
+        try:
+            model = genai.GenerativeModel(model_name)
+            prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
+            response = model.generate_content(prompt)
+            if response.text:
+                return response.text, f"gemini ({model_name})"
+        except Exception as e:
+            last_error = e
+            print(f"[Gemini] Model {model_name} failed: {e}")
+            continue
+    
+    raise Exception(f"All Gemini models failed: {last_error}")
 def call_openai(messages: List[Dict[str, str]]) -> tuple[str, str]:
     """Call OpenAI API."""
     client = get_openai_client()
