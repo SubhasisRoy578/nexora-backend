@@ -1,3 +1,4 @@
+# app/models/chat.py
 from sqlalchemy import Column, Integer, String, Text, DateTime
 from sqlalchemy.sql import func
 from app.database import Base
@@ -14,3 +15,13 @@ class ChatMessage(Base):
 
     def __repr__(self):
         return f"<ChatMessage id={self.id} user={self.user_id} role={self.role}>"
+
+    def to_dict(self):
+        """Convert message to dictionary for API responses."""
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "role": self.role,
+            "content": self.content,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
